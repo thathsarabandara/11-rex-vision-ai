@@ -1,23 +1,39 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# C extensions
-*.so
-
-# Environments
 .env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Pytest
+*.pyc
+__pycache__/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+htmlcov/
+coverage.xml
+.coverage
+*.log
+*.pem
+*.key
 
-# IDEs
-.idea/
+# AI model artifacts (large binaries)
+models/
+runs/
+*.pt
+*.onnx
+*.pkl
+*.h5
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.tar
+
+# MinIO data
+minio-data/

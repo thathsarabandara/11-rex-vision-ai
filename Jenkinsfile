@@ -1,0 +1,129 @@
+pipeline {
+    agent any
+
+    environment {
+        GHCR_CREDENTIALS_ID = 'ghcr-credentials'
+        GITHUB_USER         = 'thathsarabandara'
+        IMAGE_NAME          = "ghcr.io/${GITHUB_USER}/11-rex-vision-ai"
+        IMAGE_TAG           = "${env.BUILD_NUMBER}"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                echo 'Checking out source code from SCM...'
+                checkout scm
+            }
+        }
+
+        stage('Environment') {
+            steps {
+                echo 'Verifying runtime tools are available...'
+                sh '''
+                    python3 --version
+                    pip3 --version
+                    docker --version
+                '''
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                echo 'Creating virtual environment and installing dependencies...'
+                sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip
+                    pip install -r requirements-dev.txt
+                '''
+            }
+        }
+
+        stage('Lint') {
+            steps {
+                echo 'Running lint...'
+                sh '''
+                    . venv/bin/activate
+                    pip install ruff mypy
+                    ruff check app/ tests/
+                    mypy app/
+                '''
+            }
+        }
+
+        stage('Test') {
+            environment {
+                APP_ENV                = "testing"
+                USER_JWT_SECRET_KEY    = credentials("rex-jwt-secret")
+                INTERNAL_SERVICE_TOKEN = credentials("rex-internal-token")
+                DEVICE                 = "cpu"
+            }
+            steps {
+                echo 'Running tests...'
+                sh '''
+                    . venv/bin/activate
+                    pytest tests/ \\
+                        --asyncio-mode=auto \\
+                        --cov=app \\
+                        --cov-report=xml:coverage.xml \\
+                        --cov-fail-under=90 \\
+                        -v
+                '''
+            }
+            post {
+                always {
+                    junit "test-results/*.xml"
+                    publishCoverage adapters: [coberturaAdapter("coverage.xml")]
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
+                sh """
+                    docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                    docker tag  ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                    docker tag  ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:main
+                """
+            }
+        }
+
+        stage('Push') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo "Pushing to GitHub Container Registry: ${IMAGE_NAME}"
+                withCredentials([usernamePassword(
+                    credentialsId: GHCR_CREDENTIALS_ID,
+                    usernameVariable: 'GHCR_USER',
+                    passwordVariable: 'GHCR_TOKEN'
+                )]) {
+                    sh """
+                        echo "\${GHCR_TOKEN}" | docker login ghcr.io -u "\${GHCR_USER}" --password-stdin
+                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${IMAGE_NAME}:latest
+                        docker push ${IMAGE_NAME}:main
+                        echo "Pushed ${IMAGE_NAME}:${IMAGE_TAG}, ${IMAGE_NAME}:latest, and ${IMAGE_NAME}:main"
+                    """
+                }
+            }
+        }
+
+    }
+
+    post {
+        always {
+            sh 'docker logout ghcr.io || true'
+            cleanWs()
+        }
+        success {
+            echo "Pipeline SUCCESS — ${IMAGE_NAME}:${IMAGE_TAG} is live on GHCR!"
+        }
+        failure {
+            echo 'Pipeline FAILED — check console output above for details.'
+        }
+    }
+}

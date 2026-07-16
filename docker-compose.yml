@@ -1,18 +1,106 @@
-version: '3.8'
-
 services:
-  api:
-    build: .
+  rex-vision-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rex-vision-ai
     ports:
-      - "9006:9006"
-    env_file:
-      - .env
+      - "8011:8011"
+    environment:
+      - APP_ENV=development
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=rex
+      - MYSQL_PASSWORD=rex_dev_password
+      - MYSQL_DATABASE=rex_vision_ai_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=rex_minio_user
+      - MINIO_SECRET_KEY=rex_minio_password
+      - MINIO_SECURE=false
+      - DEVICE=cpu
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_started
     volumes:
-      - .:/app
+      - ./models:/app/models:ro
+    restart: unless-stopped
     networks:
-      - rex_shared_network
+      - rex-network
+
+  mysql:
+    image: mysql:8.0
+    container_name: rex-vision-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_dev_password
+      MYSQL_DATABASE: rex_vision_ai_db
+      MYSQL_USER: rex
+      MYSQL_PASSWORD: rex_dev_password
+    ports:
+      - "3316:3306"
+    volumes:
+      - vision-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rex-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: rex-vision-redis
+    ports:
+      - "6389:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - rex-network
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: rex-vision-qdrant
+    ports:
+      - "6343:6333"
+    volumes:
+      - vision-qdrant-data:/qdrant/storage
+    networks:
+      - rex-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: rex-vision-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: rex_minio_user
+      MINIO_ROOT_PASSWORD: rex_minio_password
+    ports:
+      - "9020:9000"
+      - "9021:9001"
+    volumes:
+      - vision-minio-data:/data
+    networks:
+      - rex-network
+
+volumes:
+  vision-mysql-data:
+  vision-qdrant-data:
+  vision-minio-data:
 
 networks:
-  rex_shared_network:
+  rex-network:
     external: true
-    name: rex_shared_network
